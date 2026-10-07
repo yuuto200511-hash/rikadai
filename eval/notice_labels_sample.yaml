@@ -1,0 +1,11 @@
+# data/sample/notices（仮データ用の旧メール）の正解ラベル
+N01_library_closure.txt: true
+N02_lounge_hours.txt: true
+N03_building7_outlets.txt: true
+N04_cafeteria_closed_past.txt: true
+N05_building10_closure.txt: true
+N06_registration.txt: false
+N07_scholarship.txt: false
+N08_health_check.txt: false
+N09_club_event.txt: false
+N10_kagurazaka.txt: false

@@ -1,0 +1,20 @@
+# 想定質問と正解スポット。expected: normal（通常） / no_match（該当なし） / unsupported（対応外）
+# normal は「answers の少なくとも1件が上位3件に含まれる」を正解とする。
+# お知らせの有効期間判定に使う評価日（data/notices の仮データに合わせる）
+today: 2026-09-26
+questions:
+  - {id: Q01, question: 静かで電源がある場所ある？, expected: normal, answers: [S003, S008]}
+  - {id: Q02, question: ソファでくつろげる場所を教えて, expected: normal, answers: [S004]}
+  - {id: Q03, question: お昼ご飯を食べながら勉強したい, expected: normal, answers: [S004, S006, S009]}
+  - {id: Q04, question: オンライン会議ができる場所はどこ？, expected: normal, answers: [S007]}
+  - {id: Q05, question: 立ったままちょっと作業できる所, expected: normal, answers: [S005, S007]}
+  - {id: Q06, question: 図書館でグループで話し合いたい, expected: normal, answers: [S002]}
+  - {id: Q07, question: 7号館で電源が使える場所, expected: normal, answers: [S007, S008]}
+  - {id: Q08, question: 20人くらいで使える静かな場所, expected: normal, answers: [S006, S008]}
+  - {id: Q09, question: 窓際で明るい席がいい, expected: normal, answers: [S009]}
+  - {id: Q10, question: 1号館で電源がある所, expected: no_match}
+  - {id: Q11, question: 図書館で食事できる場所, expected: no_match}
+  - {id: Q12, question: 10号館で作業できる場所, expected: no_match}
+  - {id: Q13, question: 今空いてる席はどこ？, expected: unsupported}
+  - {id: Q14, question: ここから一番近い自習スペースは？, expected: unsupported}
+  - {id: Q15, question: 学食のおすすめメニューは？, expected: unsupported}

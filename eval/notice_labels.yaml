@@ -1,0 +1,12 @@
+# data/notices のメールごとの正解ラベル（施設・スポットに関係するか）。すべてデモ用の架空メール
+# 仮データ用の旧メール（data/sample/notices/）のラベルは eval/notice_labels_sample.yaml
+D01_library_2f_construction.txt: true
+D02_etsuranshitsu_closed.txt: true
+D03_library_hours.txt: true
+D04_k707_open.txt: true
+D05_studyplaza_whiteboard.txt: true
+D06_21_selfstudy_closed_past.txt: true
+D07_scholarship.txt: false
+D08_career_guidance.txt: false
+D09_event.txt: false
+D10_registration.txt: false

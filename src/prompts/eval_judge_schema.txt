@@ -1,0 +1,1 @@
+{"unsupported_claims": [string], "hallucinated": true | false}

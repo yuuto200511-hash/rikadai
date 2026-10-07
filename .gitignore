@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+logs/
+data/spots.db
+data/chroma/
+eval/results/
+*:Zone.Identifier
+data/*.bak-*
+data/sample/

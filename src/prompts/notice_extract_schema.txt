@@ -1,0 +1,9 @@
+{
+  "title": string,
+  "target_building": string | null,
+  "target_floor": integer | null,
+  "target_area": string | null,
+  "impact_type": string,
+  "valid_from": "YYYY-MM-DD" | null,
+  "valid_to": "YYYY-MM-DD" | null
+}

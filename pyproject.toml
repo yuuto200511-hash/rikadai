@@ -1,0 +1,29 @@
+[project]
+name = "campus-spot-navi"
+version = "0.1.0"
+description = "東京理科大学 野田キャンパスの作業スポットを根拠付きで案内する RAG システム"
+requires-python = ">=3.11"
+dependencies = [
+    "streamlit>=1.38",
+    "pandas>=2.2",
+    "openpyxl>=3.1",
+    "chromadb>=0.5",
+    "sentence-transformers>=3.0",
+    "torch>=2.3",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
