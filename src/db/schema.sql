@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS notices (
     confirmed       INTEGER NOT NULL DEFAULT 0
 );
 
--- 教室の利用状況（survey.xlsx の reservations シート）。日付ベース。取込のたびに全件入れ替える。
+-- 教室の利用状況（survey.xlsx の reservations シート）。取込のたびに全件入れ替える。
+-- ある日の利用状況を、毎週同じ曜日（weekday。date から決める）の利用状況として使う。
 -- spot_id は対応するスポット（空欄なら room とスポットのエリア名で対応づける）。
 CREATE TABLE IF NOT EXISTS reservations (
     reservation_id INTEGER PRIMARY KEY AUTOINCREMENT,

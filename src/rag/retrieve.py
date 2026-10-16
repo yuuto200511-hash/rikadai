@@ -44,7 +44,7 @@ class Retrieval:
     unknown: list[dict[str, Any]] = field(default_factory=list)
     # 質問・画面で指定された日付・時限（指定なしなら None）
     slot: Slot | None = None
-    # slot の日付の利用状況データがあるか（False なら講義棟の教室は外していない）
+    # slot の曜日の利用状況データがあるか（False なら講義棟の教室は外していない）
     has_reservation_data: bool = False
     # 時間が重なる予約があるため外した教室: {"spot": {...}, "reservations": [...]}
     class_excluded: list[dict[str, Any]] = field(default_factory=list)
@@ -53,7 +53,7 @@ class Retrieval:
 
     @property
     def classrooms_confirmed(self) -> bool:
-        """日時の指定があり、その日の予約データで空いているか確かめられるか。"""
+        """日時の指定があり、その曜日の予約データで空いているか確かめられるか。"""
         return self.slot is not None and self.has_reservation_data
 
 
@@ -68,7 +68,7 @@ def reserved_spots(conn: sqlite3.Connection, slot: Slot) -> dict[str, list[dict[
     """
     rooms = {s["area_name"]: s["spot_id"] for s in repository.list_spots(conn) if is_classroom(s)}
     busy: dict[str, list[dict[str, Any]]] = {}
-    for r in repository.overlapping_reservations(conn, slot.day.isoformat(), slot.start, slot.end):
+    for r in repository.overlapping_reservations(conn, slot.weekday, slot.start, slot.end):
         if sid := r["spot_id"] or rooms.get(r["room"]):
             busy.setdefault(sid, []).append(r)
     return busy
@@ -214,8 +214,8 @@ def retrieve(
     result = Retrieval(conditions=dict(conditions), slot=slot)
     busy: dict[str, list[dict[str, Any]]] = {}
     if slot is not None:
-        # 予約データがない日付なら、講義棟の教室は外さない（回答で「データなし」と注記する）
-        result.has_reservation_data = slot.day.isoformat() in repository.reservation_dates(conn)
+        # 予約データがない曜日なら、講義棟の教室は外さない（回答で「データなし」と注記する）
+        result.has_reservation_data = slot.weekday in repository.reservation_weekdays(conn)
         if result.has_reservation_data:
             busy = reserved_spots(conn, slot)
 

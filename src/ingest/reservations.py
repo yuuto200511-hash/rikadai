@@ -2,6 +2,8 @@
 
 - 1行目が列名、2行目は日本語ラベル（読み飛ばす）。列: date, weekday, room, start, end, periods,
   duplicate, spot_id
+- 授業教室は学期中ほぼ固定なので、ある日の利用状況を毎週同じ曜日の利用状況として扱う
+  （曜日は date から決める。weekday 列が date の曜日と食い違う行は弾く）。
 - 表の下の注記行（date が日付でなく、ほかの列が空欄の行）は読み飛ばす。
 - 日付・時刻が読めない行は弾き、理由を返す。取込は全件入れ替え。
 """
@@ -17,6 +19,7 @@ from typing import Any
 
 import pandas as pd
 
+from src.choices import WEEKDAYS
 from src.db import repository
 
 SHEET = "reservations"
@@ -47,9 +50,12 @@ def validate_row(raw: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None
     """戻り値は (行, エラー理由)。注記行は (None, None)。"""
     others_blank = all(_blank(raw.get(c)) for c in COLUMNS if c != "date")
     try:
-        day = date.fromisoformat(str(raw.get("date")).strip()[:10]).isoformat()
+        day = date.fromisoformat(str(raw.get("date")).strip()[:10])
     except ValueError:
         return (None, None) if others_blank else (None, f"date が日付でない: {raw.get('date')!r}")
+    weekday = WEEKDAYS[day.weekday()]
+    if not _blank(raw.get("weekday")) and str(raw["weekday"]).strip().rstrip("曜日") != weekday:
+        return None, f"weekday が date の曜日（{weekday}）と違う: {raw['weekday']!r}"
     if _blank(raw.get("room")):
         return None, "room が空欄"
     try:
@@ -60,8 +66,8 @@ def validate_row(raw: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None
         return None, f"start が end 以降: {start} / {end}"
     periods = None if _blank(raw.get("periods")) else re.sub(r"\s", "", str(raw["periods"]))
     return {
-        "date": day,
-        "weekday": None if _blank(raw.get("weekday")) else str(raw["weekday"]).strip(),
+        "date": day.isoformat(),
+        "weekday": weekday,
         "room": str(raw["room"]).strip(),
         "start": start,
         "end": end,

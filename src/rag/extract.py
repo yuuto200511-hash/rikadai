@@ -87,8 +87,50 @@ def normalize_room(v: Any) -> str | None:
     """教室番号の表記をそろえる（全角→半角、英字は大文字、空白を除く）。"""
     if not isinstance(v, str):
         return None
-    room = re.sub(r"\s", "", unicodedata.normalize("NFKC", v)).upper()
-    return room or None
+    return _norm(v) or None
+
+
+# 番号を含む場所の名前（「◯号館」「K503」）。LLM に直させず、質問文の表記で確かめるために拾う
+ROOM_RE = re.compile(r"(?<![A-Z0-9])[A-Z]\d{2,4}(?![0-9])")
+BUILDING_RE = re.compile(r"(\d{1,2})号館")
+_KANJI_BUILDING_RE = re.compile(r"([〇一二三四五六七八九十]+)号館")
+_KANJI_DIGITS = {c: i for i, c in enumerate("〇一二三四五六七八九")}
+
+
+def _kanji_int(text: str) -> int | None:
+    """漢数字（1〜99）を整数にする（「二十三」「二三」→ 23、「十」→ 10）。"""
+    if "十" in text:
+        tens, _, ones = text.partition("十")
+        if any(c not in _KANJI_DIGITS for c in tens + ones):
+            return None
+        return (_KANJI_DIGITS[tens] if tens else 1) * 10 + (_KANJI_DIGITS[ones] if ones else 0)
+    if any(c not in _KANJI_DIGITS for c in text) or not text:
+        return None
+    return int("".join(str(_KANJI_DIGITS[c]) for c in text))
+
+
+def _norm(text: str) -> str:
+    """表記をそろえる（全角→半角、英字は大文字、空白を除き、漢数字の「◯号館」を算用数字にする）。"""
+    text = re.sub(r"\s", "", unicodedata.normalize("NFKC", text)).upper()
+    return _KANJI_BUILDING_RE.sub(
+        lambda m: f"{n}号館" if (n := _kanji_int(m[1])) is not None else m[0], text
+    )
+
+
+def written_buildings(text: str) -> list[str]:
+    """文中の「◯号館」（全角数字・漢数字も算用数字にそろえる。書かれた順、重複なし）。"""
+    found = (f"{int(m[1])}号館" for m in BUILDING_RE.finditer(_norm(text)))
+    return list(dict.fromkeys(found))
+
+
+def written_rooms(text: str) -> list[str]:
+    """文中の「K503」形式の教室番号（表記をそろえる。書かれた順、重複なし）。"""
+    return list(dict.fromkeys(ROOM_RE.findall(_norm(text))))
+
+
+def place_tokens(text: str) -> list[str]:
+    """文中の、番号を含む場所の名前（「◯号館」と「K503」形式の教室番号）。"""
+    return [*written_buildings(text), *written_rooms(text)]
 
 
 def _text(v: Any) -> str | None:

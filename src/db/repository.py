@@ -205,13 +205,18 @@ def reservation_dates(conn: sqlite3.Connection) -> list[str]:
     return [r[0] for r in conn.execute("SELECT DISTINCT date FROM reservations ORDER BY date")]
 
 
+def reservation_weekdays(conn: sqlite3.Connection) -> list[str]:
+    return [r[0] for r in conn.execute("SELECT DISTINCT weekday FROM reservations")]
+
+
 def overlapping_reservations(
-    conn: sqlite3.Connection, day: str, start: str, end: str
+    conn: sqlite3.Connection, weekday: str, start: str, end: str
 ) -> list[dict[str, Any]]:
-    """day の [start, end) と時間が重なる予約（時刻は "HH:MM" の文字列で比較）。"""
+    """毎週 weekday の [start, end) と時間が重なる予約（時刻は "HH:MM" の文字列で比較）。"""
     rows = conn.execute(
-        "SELECT * FROM reservations WHERE date = ? AND start < ? AND end > ? ORDER BY room, start",
-        (day, end, start),
+        "SELECT * FROM reservations WHERE weekday = ? AND start < ? AND end > ? "
+        "ORDER BY room, start",
+        (weekday, end, start),
     )
     return [dict(r) for r in rows]
 

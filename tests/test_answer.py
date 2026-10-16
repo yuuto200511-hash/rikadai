@@ -117,12 +117,28 @@ def _llm_fails(*_a, **_kw):
 def test_answer_question_routes_notice_intent(conn, monkeypatch):
     monkeypatch.setattr(
         answer.extract_mod, "extract",
-        lambda q, c, t, **kw: normalize({"supported": True, "intent": "notice", "building": "1号館"}),
+        lambda q, c, t, **kw: normalize({"supported": True, "intent": "notice", "building": "図書館",
+                                         "notice_place": "図書館"}),
     )  # fmt: skip
     monkeypatch.setattr(answer.reply_mod.claude_cli, "ask_json", _llm_fails)
-    # お知らせの確認では、建物が未調査かどうかは確かめない（返事を書けなければ定型文）
+    # 返事を書けなければ定型文
+    ans = answer.answer_question("図書館のお知らせは？", conn, today=TODAY)
+    assert ans.kind == "notice" and ans.text == "図書館について、現在、利用に影響するお知らせはありません。"
+
+
+def test_notice_about_unsurveyed_building_is_not_answered(conn, monkeypatch):
+    """お知らせの確認でも建物名を確かめる（未調査の建物を「お知らせはありません」で済ませない）。"""
+    monkeypatch.setattr(
+        answer.extract_mod, "extract",
+        lambda q, c, t, **kw: normalize({"supported": True, "intent": "notice", "building": "1号館",
+                                         "notice_place": "1号館"}),
+    )  # fmt: skip
+    monkeypatch.setattr(answer.reply_mod.claude_cli, "ask_json", _llm_fails)
     ans = answer.answer_question("1号館のお知らせは？", conn, today=TODAY)
-    assert ans.kind == "notice" and ans.text == "1号館について、現在、利用に影響するお知らせはありません。"
+    assert ans.kind == "unsurveyed"
+    assert ans.text.startswith("1号館は未調査のため情報がありません。")
+    # 一覧は利用者に通じる場所の名前（建物名が空欄の「閲覧室」も含める）
+    assert "調査済みの建物・場所：図書館 / 閲覧室" in ans.text
 
 
 def test_notice_is_not_narrowed_by_generic_words(conn):
@@ -173,7 +189,7 @@ def test_unsupported_reply_uses_related_notices(conn, monkeypatch):
     ans = answer.answer_question("図書館は何時まで？", conn, today=TODAY)
     assert ans.kind == "unsupported" and [n["title"] for n in ans.notices] == ["lib"]
     assert "図書館の調査済みスポット" in seen["prompt"] and "[お知らせID 1]" in seen["prompt"]
-    assert "閲覧室" not in seen["prompt"]  # 質問の建物と関係ないお知らせは渡さない
+    assert "etsuran" not in seen["prompt"]  # 質問の建物と関係ないお知らせは渡さない
 
 
 def test_spot_reply_falls_back_when_order_changed(conn):

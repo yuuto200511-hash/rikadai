@@ -160,7 +160,7 @@ CLASSROOM_NOTE = "授業がない時間のみ利用可"
 def no_data_note(r: retrieve_mod.Retrieval) -> str | None:
     if r.slot is None or r.has_reservation_data:
         return None
-    return f"{when.day_label(r.slot.day)}の利用状況データがありません"
+    return f"{r.slot.weekday}曜日の利用状況データがありません"
 
 
 def classroom_note(s: dict[str, Any], r: retrieve_mod.Retrieval) -> str | None:
@@ -362,13 +362,14 @@ def _llm_pick_ids(raw: dict[str, Any], r: retrieve_mod.Retrieval) -> list[str]:
 
 
 def spot_reply(
-    raw: dict[str, Any], r: retrieve_mod.Retrieval, picks: list[dict[str, Any]], context: str
-) -> str | None:
-    """LLM が書いた返事。データにない数値がある、またはおすすめの順番をコードで変えた
+    raw: dict[str, Any], r: retrieve_mod.Retrieval, picks: list[dict[str, Any]], context: str,
+    question: str = "",
+) -> str | None:  # fmt: skip
+    """LLM が書いた返事。データにない数値・場所の名前がある、またはおすすめの順番をコードで変えた
     （返事とカードの順番が合わない）ときは None（定型文を使う）。"""
     if _llm_pick_ids(raw, r) != [p["spot"]["spot_id"] for p in picks]:
         return None
-    return reply_mod.checked(raw.get("reply"), context)
+    return reply_mod.checked(raw.get("reply"), context, question)
 
 
 def choose_picks(raw: dict[str, Any], r: retrieve_mod.Retrieval) -> list[dict[str, Any]]:
@@ -487,7 +488,7 @@ def side_notes(r: retrieve_mod.Retrieval) -> list[str]:
     return notes
 
 
-ROOM_RE = re.compile(r"(?<![A-Z0-9])[A-Z]\d{2,4}(?![0-9])")
+ROOM_RE = extract_mod.ROOM_RE
 MAX_SUGGESTIONS = 3
 # あることは分かっているが調査していない場所（建物以外）。質問に書かれていたら未調査と答え、
 # 名前や用途の近い調査済みの場所の情報で答えない（談話室を閲覧室と混同しない）
@@ -534,7 +535,7 @@ def _nearby_classrooms(room: str, spots: list[dict[str, Any]]) -> list[dict[str,
 
 
 def _unsurveyed_room(
-    question: str, room: str, spots: list[dict[str, Any]], buildings: list[str],
+    question: str, room: str, spots: list[dict[str, Any]], places: list[str],
     cond: dict[str, Any],
 ) -> Answer:  # fmt: skip
     near = _nearby_classrooms(room, spots)
@@ -542,26 +543,68 @@ def _unsurveyed_room(
         lines = ["調査済みの講義棟の教室："] + [f"- {user_location(s)}" for s in near]
         suggestions = _replaced(question, room, [s["area_name"] for s in near])
     else:
-        lines = [f"調査済みの建物：{' / '.join(buildings)}"]
+        lines = [surveyed_line(places)]
         suggestions = []
     text = f"{room} は未調査のため、設備の情報がありません。\n\n" + "\n".join(lines)
     return Answer(text, "unsurveyed", cond, suggestions=suggestions)
 
 
 def _unsurveyed_building(
-    question: str, building: str, buildings: list[str], cond: dict[str, Any]
+    question: str, building: str, places: list[str], cond: dict[str, Any]
 ) -> Answer:
-    text = (
-        f"{building}は未調査のため情報がありません。\n\n"
-        f"調査済みの建物：{' / '.join(buildings)}"
-    )
-    return Answer(text, "unsurveyed", cond, suggestions=_replaced(question, building, buildings))
+    # 「◯号館」には、番号が似ているだけの「◯号館」を代わりに勧めない（23号館 → 21号館 など）
+    candidates = places
+    if extract_mod.written_buildings(building):
+        candidates = [p for p in places if not extract_mod.written_buildings(p)]
+    text = f"{building}は未調査のため情報がありません。\n\n{surveyed_line(places)}"
+    return Answer(text, "unsurveyed", cond, suggestions=_replaced(question, building, candidates))
+
+
+def _use_written_building(ext: extract_mod.Extraction, building: str) -> None:
+    """条件・お知らせ・口コミの対象の建物名を、質問文に書かれた表記にそろえる。"""
+    previous = ext.conditions.get("building")
+    ext.conditions["building"] = building
+    for key in ("notice_place", "review_place"):
+        place = getattr(ext, key)
+        if place and (place == previous or extract_mod.written_buildings(place)):
+            setattr(ext, key, building)
+
+
+def check_building(
+    question: str, ext: extract_mod.Extraction, conn: sqlite3.Connection
+) -> Answer | None:
+    """建物名を質問文と照合する（教室番号と同じ扱い。LLM の読み替えを信じない）。
+
+    - 質問文に書かれた「◯号館」が調査済みの建物になければ、未調査と答える（kind="unsurveyed"）
+    - 質問文の「◯号館」と LLM が返した「◯号館」が食い違ったら、質問文のほうを正とする
+    - 「体育館」のような、番号のない未調査の建物名（LLM の抽出）も未調査と答える
+    調査済みかどうかは building 列で判定し、利用者に見せる一覧は surveyed_places（閲覧室・自習室も含む）。
+    """
+    buildings = repository.list_buildings(conn)
+    written = extract_mod.written_buildings(question)
+    for name in written:
+        if name not in buildings:
+            _use_written_building(ext, name)
+            return _unsurveyed_building(question, name, surveyed_places(conn), ext.conditions)
+    building = ext.conditions.get("building")
+    if written and building and building not in written and extract_mod.written_buildings(building):
+        # LLM が別の番号の「◯号館」に読み替えた（質問文の「図書館」などの建物名は上書きしない）
+        _use_written_building(ext, written[0])
+        building = written[0]
+    if building and building not in buildings and building not in surveyed_places(conn):
+        return _unsurveyed_building(question, building, surveyed_places(conn), ext.conditions)
+    return None
 
 
 def surveyed_places(conn: sqlite3.Connection) -> list[str]:
-    """調査済みの建物と、建物名が未記入の場所（「閲覧室 6人掛けデスク」の「閲覧室」）。"""
+    """調査済みの場所を、利用者に通じる名前で並べる：建物と、建物名が未記入の場所
+    （「閲覧室 6人掛けデスク」の「閲覧室」）。未調査と答えるときの一覧・候補ボタンに使う。"""
     places = [s["area_name"].split()[0] for s in repository.list_spots(conn) if not s["building"]]
     return list(dict.fromkeys([*repository.list_buildings(conn), *places]))
+
+
+def surveyed_line(places: list[str]) -> str:
+    return f"調査済みの建物・場所：{' / '.join(places)}"
 
 
 def unsurveyed_place(question: str, ext: extract_mod.Extraction) -> str | None:
@@ -577,7 +620,7 @@ def _unsurveyed_place(
     question: str, place: str, conn: sqlite3.Connection, cond: dict[str, Any]
 ) -> Answer:
     places = surveyed_places(conn)
-    text = f"{place}は未調査のため情報がありません。\n\n調査済みの建物・場所：{' / '.join(places)}"
+    text = f"{place}は未調査のため情報がありません。\n\n{surveyed_line(places)}"
     return Answer(text, "unsurveyed", cond, suggestions=_replaced(question, place, places))
 
 
@@ -592,12 +635,15 @@ def check_places(
     - 調査済みの教室 → 条件（room）に加えて None を返す
     - 実在する（data/rooms.csv にある）が未調査の教室 → 未調査と伝え、調査済みの講義棟の教室（階・番号が近い順）を示す
     - 実在しない教室 → 推測で決めつけず、近い候補を示して聞き返す（kind="clarify"）
-    - 調査済みの建物にない建物 → 聞き返さず、未調査と伝えて調査済みの建物の一覧を示す
+    - 調査済みの建物にない建物 → 聞き返さず、未調査と伝えて調査済みの建物・場所の一覧を示す
     - 調査していない場所（UNSURVEYED_PLACES。建物以外）→ 未調査と伝えて調査済みの建物・場所の一覧を示す
-    教室番号は LLM の抽出に加えて質問文からも拾う（LLM が近い教室に直してしまっても見逃さない）。
+    教室番号・建物名は LLM の抽出に加えて質問文からも拾い、食い違ったら質問文を正とする
+    （LLM が近い教室・近い番号の建物に直してしまっても見逃さない）。建物名の照合は check_building。
     """
     if place := unsurveyed_place(question, ext):
         return _unsurveyed_place(question, place, conn, ext.conditions)
+    if unsurveyed := check_building(question, ext, conn):
+        return unsurveyed
     if ext.room and not re.search(r"\d", ext.room):
         # 「閲覧室」のような数字のない場所の名前は教室番号ではない（条件にせず、意味検索に任せる）
         ext.room = None
@@ -605,18 +651,15 @@ def check_places(
     surveyed = {s["area_name"] for s in spots if retrieve_mod.is_classroom(s)}
     rooms = load_rooms() if rooms is None else rooms
     real = set(rooms) | surveyed
-    buildings = repository.list_buildings(conn)
     for token in _room_tokens(question, ext, real):
         if token in surveyed:
             continue
         if token in rooms:
-            return _unsurveyed_room(question, token, spots, buildings, ext.conditions)
+            places = surveyed_places(conn)
+            return _unsurveyed_room(question, token, spots, places, ext.conditions)
         return _clarify(question, "教室", token, _close(token, sorted(real)), ext.conditions)
     if ext.room:
         ext.conditions["room"] = ext.room
-    building = ext.conditions.get("building")
-    if building and building not in buildings:
-        return _unsurveyed_building(question, building, buildings, ext.conditions)
     return None
 
 
@@ -763,7 +806,7 @@ def _spot_line(s: dict[str, Any]) -> str:
 def _capabilities(conn: sqlite3.Connection) -> str:
     return (
         "できること:\n"
-        f"- 野田キャンパスの調査済みの作業スポット（{'・'.join(repository.list_buildings(conn))}）を、"
+        f"- 野田キャンパスの調査済みの作業スポット（{'・'.join(surveyed_places(conn))}）を、"
         "静かさ・電源・座席数・飲食・椅子などの条件で探す（例:「静かで電源がある場所は？」）\n"
         "- 日付と時限を指定して、授業・予約で使われていない講義棟の教室を探す\n"
         "- 施設のお知らせ（工事・閉鎖・開放など）を確認する"
@@ -992,6 +1035,13 @@ def _answer(
     history: str,
     search_text: str,
 ) -> Answer:
+    # 調査していない場所・建物は、質問の種類にかかわらず先に確かめる。「23号館」「談話室」なら、
+    # お知らせ・口コミ・対応外の質問でも未調査と答える（番号・名前の近い場所のことを答えない）
+    if place := unsurveyed_place(question, ext):
+        ans = _unsurveyed_place(question, place, conn, ext.conditions)
+        return _rewrite(question, ans, today, history)
+    if unsurveyed := check_building(question, ext, conn):
+        return _rewrite(question, unsurveyed, today, history)
     if not ext.supported:
         ans = Answer(prompts.load("unsupported", reason=ext.unsupported_reason), "unsupported")
         facts, notices = _unsupported_facts(ext, conn, today, question)
@@ -1013,8 +1063,6 @@ def _answer(
         ans.notices = notices  # 詳細は該当したお知らせをすべて出す
         return ans
     if ext.intent == "review":
-        if place := unsurveyed_place(question, ext):
-            return _rewrite(question, _unsurveyed_place(question, place, conn, {}), today, history)
         ans, facts = answer_reviews(ext, conn)
         return _converse(question, ans, prompts.load("reply_review"), facts, today, history=history)
     if clarify := check_places(question, ext, conn):
@@ -1056,6 +1104,6 @@ def _answer(
         logger.exception("answer generation failed")
         return Answer(prompts.load("error"), "error", ext.conditions, r)
     picks = choose_picks(raw, r)
-    text = spot_reply(raw, r, picks, prompt) or format_headline(picks, r, ext.want_reviews)
+    text = spot_reply(raw, r, picks, prompt, question) or format_headline(picks, r, ext.want_reviews)
     kind = "relaxed" if r.relaxed_key else "normal"
     return Answer(text, kind, ext.conditions, r, picks, context=prompt)

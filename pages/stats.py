@@ -62,6 +62,7 @@ st.write(
     f"口コミ {len(repository.list_reviews(c))} 件 / "
     f"誤り報告 {len(reports)} 件（未対応 {sum(not r['resolved'] for r in reports)} 件） / "
     f"教室の利用状況データ: {', '.join(repository.reservation_dates(c)) or 'なし'}"
+    "（毎週同じ曜日の利用状況として使う）"
 )
 
 st.subheader("スポット一覧（電源確保率つき）")

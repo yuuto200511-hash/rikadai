@@ -21,6 +21,10 @@ class Slot:
     end: str
     label: str
 
+    @property
+    def weekday(self) -> str:
+        return WEEKDAYS[self.day.weekday()]
+
 
 def day_label(d: date) -> str:
     return f"{d.month}/{d.day}({WEEKDAYS[d.weekday()]})"

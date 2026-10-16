@@ -46,6 +46,8 @@ def test_validate_row():
     assert reservations.validate_row({**ROWS[0], "date": "明日"})[1].startswith("date")
     assert reservations.validate_row({**ROWS[0], "end": "12:00"})[1].startswith("start が end")
     assert reservations.validate_row({**ROWS[0], "room": ""})[1] == "room が空欄"
+    assert reservations.validate_row({**ROWS[0], "weekday": "木"})[1].startswith("weekday")
+    assert reservations.validate_row({**ROWS[0], "weekday": None})[0]["weekday"] == "金"
 
 
 def test_survey_ingest_reads_reservations_sheet(tmp_path):
@@ -99,6 +101,9 @@ def test_overlapping_reservations_exclude_classrooms(conn):
     assert [e["spot"]["spot_id"] for e in r.class_excluded] == ["S002"]
     r = retrieve.retrieve("q", {}, conn, similarity=sim, slot=when.period_slot(FRI, 5))
     assert [e["spot"]["spot_id"] for e in r.class_excluded] == ["S001"]  # 16:20-17:50 も重なる
+    # 10/2(金) の利用状況は毎週金曜日の利用状況として使う
+    r = retrieve.retrieve("q", {}, conn, similarity=sim, slot=when.period_slot(date(2026, 10, 9), 3))
+    assert r.has_reservation_data and [e["spot"]["spot_id"] for e in r.class_excluded] == ["S001"]
 
 
 def test_no_data_date_keeps_classrooms_and_notes_it(conn):
@@ -108,7 +113,7 @@ def test_no_data_date_keeps_classrooms_and_notes_it(conn):
     # 予約データがない日付は日時の指定なしと同じ: 教室は外さないが、おすすめにせずカードにだけ載せる
     assert [s["spot_id"] for s in r.classrooms] == ["S001", "S002"]
     assert [s["spot_id"] for s in r.spots] == ["S004", "S003"]
-    assert note_line(r).startswith("10/3(土)の利用状況データがありません")
+    assert note_line(r).startswith("土曜日の利用状況データがありません")
     picks = choose_picks({"picks": [{"spot_id": "S001", "reason": "コンセント5口"}]}, r)
     assert [p["spot"]["spot_id"] for p in picks] == ["S004"]  # 候補外（教室）は捨てる
     ans = Answer(format_headline(picks, r), "normal", {}, r, picks)
