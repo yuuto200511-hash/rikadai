@@ -1,10 +1,11 @@
 {
-  "intent": "spot" | "notice" | "chat" | "review",
+  "intent": "spot" | "notice" | "chat" | "review" | "kitchen_car",
   "follow_up": true | false,
   "notice_place": string | null,
   "review_spot_ids": [string] | null,
   "review_place": string | null,
   "want_reviews": true | null,
+  "kitchen_item": string | null,
   "supported": true | false,
   "unsupported_reason": string | null,
   "building": string | null,

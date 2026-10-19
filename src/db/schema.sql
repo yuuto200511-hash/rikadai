@@ -66,3 +66,18 @@ CREATE TABLE IF NOT EXISTS error_reports (
     posted_at   TEXT NOT NULL,
     resolved    INTEGER NOT NULL DEFAULT 0
 );
+
+-- キッチンカーの出店情報（管理者が毎月 CSV で取り込む。1行 = 1日・1店・1メニュー）。
+-- 同じ月を取り込み直すと、その月の分を置き換える。
+CREATE TABLE IF NOT EXISTS kitchen_cars (
+    kitchen_car_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date           DATE NOT NULL,
+    weekday        TEXT NOT NULL,
+    open           TEXT NOT NULL,
+    close          TEXT NOT NULL,
+    location       TEXT NOT NULL,
+    vendor         TEXT NOT NULL,
+    item           TEXT NOT NULL,
+    price_yen      INTEGER NOT NULL CHECK (price_yen >= 0)
+);
+CREATE INDEX IF NOT EXISTS kitchen_cars_date ON kitchen_cars (date);

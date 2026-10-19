@@ -275,3 +275,54 @@ def active_notices(conn: sqlite3.Connection, today: date | None = None) -> list[
         (d, d),
     )
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------- kitchen cars
+
+KITCHEN_CAR_COLUMNS = ("date", "weekday", "open", "close", "location", "vendor", "item", "price_yen")
+
+
+def replace_kitchen_cars(conn: sqlite3.Connection, rows: Iterable[dict[str, Any]]) -> dict[str, int]:
+    """キッチンカーの出店情報を取り込む。取込データにある月（YYYY-MM）の分を置き換える。
+
+    戻り値は 月 → 取り込んだ行数。
+    """
+    values = [tuple(r.get(c) for c in KITCHEN_CAR_COLUMNS) for r in rows]
+    months: dict[str, int] = {}
+    for v in values:
+        months[v[0][:7]] = months.get(v[0][:7], 0) + 1
+    with conn:
+        conn.executemany(
+            "DELETE FROM kitchen_cars WHERE substr(date, 1, 7) = ?", [(m,) for m in months]
+        )
+        conn.executemany(
+            f"INSERT INTO kitchen_cars ({', '.join(KITCHEN_CAR_COLUMNS)}) "
+            f"VALUES ({', '.join('?' for _ in KITCHEN_CAR_COLUMNS)})",
+            values,
+        )
+    return months
+
+
+def kitchen_car_months(conn: sqlite3.Connection) -> dict[str, int]:
+    """登録済みの月（YYYY-MM）→ 行数。"""
+    rows = conn.execute(
+        "SELECT substr(date, 1, 7) AS month, COUNT(*) FROM kitchen_cars GROUP BY month ORDER BY month"
+    )
+    return {r[0]: r[1] for r in rows}
+
+
+def list_kitchen_cars(
+    conn: sqlite3.Connection, day: date | None = None, since: date | None = None
+) -> list[dict[str, Any]]:
+    """出店情報（日付 → 場所 → 取込の順）。day はその日だけ、since はその日以降。"""
+    sql = "SELECT * FROM kitchen_cars"
+    if day is not None:
+        sql += " WHERE date = ?"
+        params: tuple[Any, ...] = (day.isoformat(),)
+    elif since is not None:
+        sql += " WHERE date >= ?"
+        params = (since.isoformat(),)
+    else:
+        params = ()
+    sql += " ORDER BY date, location, kitchen_car_id"
+    return [dict(r) for r in conn.execute(sql, params)]

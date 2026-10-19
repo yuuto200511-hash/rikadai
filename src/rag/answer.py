@@ -21,6 +21,7 @@ from src.db.rooms import Room, load_rooms
 from src.ingest.notice import demo_label, is_demo, strip_demo_mark
 from src.llm import claude_cli
 from src.rag import extract as extract_mod
+from src.rag import kitchen_car as kitchen_car_mod
 from src.rag import reply as reply_mod
 from src.rag import retrieve as retrieve_mod
 from src.rag import when
@@ -54,7 +55,7 @@ MAX_RECENT_REVIEWS = 10
 @dataclass
 class Answer:
     text: str
-    # normal / relaxed / no_result / unsupported / clarify / unsurveyed / notice / chat / error
+    # normal / relaxed / no_result / unsupported / clarify / unsurveyed / notice / chat / kitchen_car / error
     kind: str
     conditions: dict[str, Any] = field(default_factory=dict)
     retrieval: retrieve_mod.Retrieval | None = None
@@ -72,6 +73,8 @@ class Answer:
     search_text: str = ""
     # 口コミの確認で答えた口コミ: {"spot": {...}, "reviews": [...]}
     reviews: list[dict[str, Any]] = field(default_factory=list)
+    # キッチンカーの確認で答えた、日ごとの店（「メニューを見る」に出す。kitchen_car.groups の形）
+    kitchen_cars: list[tuple[date, list[dict[str, Any]]]] = field(default_factory=list)
 
     @property
     def spot_ids(self) -> list[str]:
@@ -703,7 +706,7 @@ def _md(day: str | None) -> str:
     return f"{d.month}/{d.day}"
 
 
-def _notice_period(n: dict[str, Any]) -> str:
+def notice_period(n: dict[str, Any]) -> str:
     start, end = _md(n.get("valid_from")), _md(n.get("valid_to"))
     if not end:
         return f"{start}〜（終了日の記載なし）" if start else "期間の記載なし"
@@ -735,7 +738,7 @@ def notice_facts(n: dict[str, Any]) -> str:
         f"  件名: {n.get('title') or '(無題)'}",
         f"  対象の場所: {retrieve_mod.notice_place(n)}",
         f"  影響: {impact}（{IMPACT_MEANINGS.get(impact, impact)}）",
-        f"  期間: {_notice_period(n)}",
+        f"  期間: {notice_period(n)}",
         "  メール本文:",
         *(f"    {line}" for line in notice_body(n).splitlines()),
     ]
@@ -749,7 +752,7 @@ def notice_details(n: dict[str, Any]) -> str:
             f"#### {demo_label(n)}{n.get('title') or '(無題)'}",
             f"- 対象：{retrieve_mod.notice_place(n)}",
             f"- 影響：{n['impact_type']}（{IMPACT_MEANINGS.get(n['impact_type'], n['impact_type'])}）",
-            f"- 期間：{_notice_period(n)}",
+            f"- 期間：{notice_period(n)}",
         ]
     )
 
@@ -791,7 +794,7 @@ def answer_notices(
         return Answer(f"{about}現在、利用に影響するお知らせはありません。", "notice", ext.conditions)
     lines = [f"{about}現在、利用に影響するお知らせは次の{len(notices)}件です（{_md(today.isoformat())}時点）。", ""]
     lines += [
-        f"- {demo_label(n)}{retrieve_mod.notice_place(n)} ／ {n['impact_type']} ／ {_notice_period(n)}"
+        f"- {demo_label(n)}{retrieve_mod.notice_place(n)} ／ {n['impact_type']} ／ {notice_period(n)}"
         for n in notices
     ]
     return Answer("\n".join(lines), "notice", ext.conditions, notices=notices)
@@ -831,7 +834,10 @@ def _unsupported_facts(
 
 
 Turn = tuple[str, Answer]
-INTENT_LABELS = {"notice": "お知らせの確認", "chat": "挨拶・雑談", "review": "口コミの確認"}
+INTENT_LABELS = {
+    "notice": "お知らせの確認", "chat": "挨拶・雑談", "review": "口コミの確認",
+    "kitchen_car": "キッチンカーの確認",
+}  # fmt: skip
 
 
 def shown_spots(ans: Answer) -> list[dict[str, Any]]:
@@ -1035,6 +1041,12 @@ def _answer(
     history: str,
     search_text: str,
 ) -> Answer:
+    # キッチンカーの出店場所（3号館）は作業スポットとしては未調査でも、キッチンカーの確認では答える。
+    # 出店する日・店はプログラムが表から引き、LLM は返事の文章だけを書く
+    if ext.intent == "kitchen_car":
+        k = kitchen_car_mod.lookup(question, ext, conn, today)
+        ans = Answer(k.text, "kitchen_car", kitchen_cars=k.days)
+        return _converse(question, ans, prompts.load("reply_kitchen_car"), k.facts, today, history=history)
     # 調査していない場所・建物は、質問の種類にかかわらず先に確かめる。「23号館」「談話室」なら、
     # お知らせ・口コミ・対応外の質問でも未調査と答える（番号・名前の近い場所のことを答えない）
     if place := unsurveyed_place(question, ext):

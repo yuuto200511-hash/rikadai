@@ -10,6 +10,7 @@ uv run python -m src.ingest.survey          # data/survey.xlsx（spots・reserva
 uv run python -m src.db.vector_store        # スポット（場所＋備考）/ 口コミをベクトル DB に登録
 uv run python -m src.ingest.notice          # data/notices/*.txt を判定・抽出（confirmed=false で保存）。現在はデモ用の架空メール10件
 uv run streamlit run app.py                 # 利用者向け画面。サイドバーの「管理」（pages/）でお知らせを確認済みにすると検索に反映
+uv run python -m src.ingest.kitchen_cars data/kitchen_cars/kitchen_cars_2026-10.csv  # キッチンカー（管理画面「キッチンカー取込」と同じ確認。同じ月は置き換え）
 ```
 
 仮データ（10スポット）は `uv run python scripts/make_sample_data.py` で `data/sample/survey_sample.xlsx` に生成できる

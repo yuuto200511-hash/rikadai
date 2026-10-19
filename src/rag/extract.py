@@ -30,7 +30,7 @@ SINGLE_KEYS: dict[str, tuple[str, ...]] = {
 }
 
 
-INTENTS = ("spot", "notice", "chat", "review")
+INTENTS = ("spot", "notice", "chat", "review", "kitchen_car")
 
 
 @dataclass
@@ -47,7 +47,7 @@ class Extraction:
     # 質問文に書かれた教室番号（表記のまま。実在するかは回答側で確かめる）
     room: str | None = None
     # 質問の種類: "spot"（作業スポット探し）/ "notice"（お知らせの確認）/ "chat"（挨拶・雑談）/
-    # "review"（口コミの確認）
+    # "review"（口コミの確認）/ "kitchen_car"（キッチンカーの確認）
     intent: str = "spot"
     # お知らせの確認で指定された建物・場所（建物なら conditions["building"] にも入る）
     notice_place: str | None = None
@@ -58,6 +58,8 @@ class Extraction:
     review_place: str | None = None
     # スポット探しで、口コミの内容も知りたいか
     want_reviews: bool = False
+    # キッチンカーの確認で聞かれたメニュー・店の名前（「タコライス」）
+    kitchen_item: str | None = None
 
 
 def _to_int(v: Any) -> int | None:
@@ -162,7 +164,9 @@ def normalize(raw: dict[str, Any]) -> Extraction:
                 cond[key] = kept
     if quiet := quietness_range(raw):
         cond["quietness"] = quiet
-    supported = raw.get("supported") is not False
+    intent = raw["intent"] if raw.get("intent") in INTENTS else "spot"
+    # キッチンカーの確認は、作業スポット探しでなくても答える
+    supported = raw.get("supported") is not False or intent == "kitchen_car"
     reason = raw.get("unsupported_reason") if not supported else None
     weekday = raw.get("weekday") if raw.get("weekday") in WEEKDAYS else None
     period = _to_int(raw.get("period"))
@@ -179,7 +183,7 @@ def normalize(raw: dict[str, Any]) -> Extraction:
         period=period if period is not None and period > 0 else None,
         now=raw.get("now") is True,
         room=normalize_room(raw.get("room")),
-        intent=raw["intent"] if raw.get("intent") in INTENTS else "spot",
+        intent=intent,
         notice_place=_text(raw.get("notice_place")),
         follow_up=raw.get("follow_up") is True,
         review_spot_ids=[
@@ -187,6 +191,7 @@ def normalize(raw: dict[str, Any]) -> Extraction:
         ],
         review_place=_text(raw.get("review_place")),
         want_reviews=raw.get("want_reviews") is True,
+        kitchen_item=_text(raw.get("kitchen_item")),
     )
 
 

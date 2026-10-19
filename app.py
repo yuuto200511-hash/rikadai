@@ -5,7 +5,8 @@ app.py は利用者向けの画面（チャット・口コミ投稿）。管理�
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import streamlit as st
 
@@ -13,8 +14,12 @@ from src.choices import PERIOD_TIMES, REVIEW_RATINGS
 from src.db import repository
 from src.ingest import error_report as report_ingest
 from src.ingest import review as review_ingest
-from src.rag.answer import answer_question, cards, notice_body, notice_details, side_notes
+from src.rag.answer import answer_question, cards, notice_body, notice_details, notice_period, side_notes
+from src.rag.kitchen_car import menu_line, vendor_line
+from src.rag.retrieve import notice_place
 from src.rag.when import day_label
+from src.summary import NO_INFO, today_summary
+from src.ingest.notice import demo_label
 from src.ui import conn, spot_label
 
 PHOTO_DIR = repository.ROOT / "data" / "photos"
@@ -63,14 +68,50 @@ def show_reviews(ans) -> None:
                     st.caption(r["posted_at"][:10])
 
 
+def show_vendor(g: dict) -> None:
+    """キッチンカー1店（場所・店名・時間）。メニューは折りたたむ。"""
+    st.markdown(f"**{vendor_line(g)}**")
+    with st.expander(f"メニュー（{len(g['items'])}品）"):
+        st.markdown("\n".join(f"- {menu_line(*it)}" for it in g["items"]))
+
+
+def show_kitchen_cars(ans) -> None:
+    """キッチンカーの確認で答えた日・店とメニュー（出店表の値をそのまま表示する）。"""
+    with st.expander("メニューを見る"):
+        for day, gs in ans.kitchen_cars:
+            st.markdown(f"**{day_label(day)}**")
+            for g in gs:
+                st.markdown(f"{vendor_line(g)}  \n" + " ／ ".join(menu_line(*it) for it in g["items"]))
+
+
+def show_today_summary() -> None:
+    """今日のまとめ（LLM を使わず DB の値から作る）。データがない項目も隠さない。"""
+    today = datetime.now(ZoneInfo("Asia/Tokyo")).date()
+    summary = today_summary(conn(), today)
+    with st.container(border=True):
+        st.markdown(f"##### 今日のまとめ（{day_label(today)}）")
+        st.markdown("🚚 **今日のキッチンカー**")
+        if not summary.kitchen_cars:
+            st.caption(NO_INFO)
+        for g in summary.kitchen_cars:
+            show_vendor(g)
+        st.markdown("🚧 **今日使えない場所**")
+        if not summary.closed:
+            st.caption(NO_INFO)
+        for n in summary.closed:
+            st.markdown(f"- {demo_label(n)}{notice_place(n)}（{notice_period(n)}）")
+
+
 def show_answer_extras(ans, key: str) -> None:
-    """カード・お知らせ・口コミ（詳細を見る）と、聞き返しのときの候補ボタン。"""
+    """カード・お知らせ・口コミ・キッチンカー（詳細を見る）と、聞き返しのときの候補ボタン。"""
     if cards(ans):
         show_details(ans)
     if ans.notices:
         show_notice_details(ans)
     if ans.reviews:
         show_reviews(ans)
+    if ans.kitchen_cars:
+        show_kitchen_cars(ans)
     for i, suggestion in enumerate(ans.suggestions):
         if st.button(suggestion, key=f"suggest-{key}-{i}", width="stretch"):
             st.session_state["pending_question"] = suggestion
@@ -111,6 +152,7 @@ def page_chat() -> None:
         "野田キャンパスの作業スポットを、公式調査データをもとに案内します。"
         "「飲み物も飲みたい」のように続けて送ると、前の条件に追加して探し直します。"
     )
+    show_today_summary()
 
     cols = st.columns(len(EXAMPLES))
     for col, example in zip(cols, EXAMPLES, strict=True):
@@ -201,6 +243,7 @@ st.navigation(
         ],
         "管理": [
             st.Page("pages/notices.py", title="お知らせ管理", icon="📨"),
+            st.Page("pages/kitchen_cars.py", title="キッチンカー取込", icon="🚚"),
             st.Page("pages/error_reports.py", title="誤り報告の確認", icon="🛠️"),
             st.Page("pages/stats.py", title="調査データ・集計", icon="📊"),
         ],
