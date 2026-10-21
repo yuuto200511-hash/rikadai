@@ -80,3 +80,29 @@ def test_build_cmd_effort_and_no_settings(monkeypatch, effort):
         assert cmd[cmd.index("--effort") + 1] == "low"
     else:
         assert "--effort" not in cmd
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("連絡はtaro.yamada+lab@ed.tus.ac.jpまで", "連絡は[伏字]まで"),
+        ("学籍番号6322001です", "学籍番号[伏字]です"),
+        ("学籍番号６３２２００１です", "学籍番号[伏字]です"),
+        # 7桁でない数字・日付・時刻はそのまま
+        ("123456 と 12345678、2026-10-20 12:30", "123456 と 12345678、2026-10-20 12:30"),
+    ],
+)
+def test_redact(text, expected):
+    assert claude_cli.redact(text) == expected
+
+
+def test_log_redacts_but_prompt_is_unchanged(monkeypatch):
+    run = fake_run([ok("a@example.com さん、6322001 ですね")])
+    monkeypatch.setattr(subprocess, "run", run)
+    prompt = "6322001 の a@example.com です"
+    assert claude_cli.ask(prompt) == "a@example.com さん、6322001 ですね"
+    assert run.calls[0][1]["input"] == prompt  # AI に渡す内容は変えない
+    rec = json.loads(claude_cli.LOG_PATH.read_text())
+    assert rec["prompt"] == "[伏字] の [伏字] です"
+    assert rec["response"] == "[伏字] さん、[伏字] ですね"
+    assert rec["cost_usd"] == 0.01

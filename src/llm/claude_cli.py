@@ -30,6 +30,9 @@ CLAUDE_EFFORT = os.environ.get("CLAUDE_EFFORT", "low")
 LOG_PATH = Path(__file__).resolve().parents[2] / "logs" / "llm.jsonl"
 
 _JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
+# ログに残さない個人情報（OWASP LLM02）：メールアドレスと、学籍番号らしい7桁の数字
+_PII_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+|(?<!\d)\d{7}(?!\d)")
+REDACTED = "[伏字]"
 
 
 class ClaudeError(RuntimeError):
@@ -59,7 +62,13 @@ def _build_cmd(system: str | None, model: str) -> list[str]:
     return cmd
 
 
+def redact(text: str) -> str:
+    return _PII_RE.sub(REDACTED, text)
+
+
 def _log(record: dict[str, Any]) -> None:
+    # AI に渡す内容は変えず、ファイルに書く文字列だけ伏せる
+    record = {k: redact(v) if isinstance(v, str) else v for k, v in record.items()}
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with LOG_PATH.open("a", encoding="utf-8") as f:
