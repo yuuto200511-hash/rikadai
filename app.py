@@ -5,11 +5,13 @@ app.py は利用者向けの画面（チャット・口コミ投稿）。管理�
 
 from __future__ import annotations
 
+import time
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import streamlit as st
 
+from src import limits
 from src.choices import PERIOD_TIMES, REVIEW_RATINGS
 from src.db import repository
 from src.ingest import error_report as report_ingest
@@ -177,6 +179,13 @@ def page_chat() -> None:
         history.append(("user", question, None))
         with st.chat_message("user"):
             st.markdown(question)
+        # 長すぎる質問・続けざまの質問は AI を呼ばずに返す（会話の引き継ぎにも使わない）
+        calls = st.session_state.setdefault("llm_calls", [])
+        if rejected := limits.check(question, calls, time.monotonic()):
+            with st.chat_message("assistant"):
+                st.markdown(rejected)
+            history.append(("assistant", rejected, None))
+            return
         with st.chat_message("assistant"):
             # 処理の段階を表示し、回答が出たら消す
             placeholder = st.empty()
