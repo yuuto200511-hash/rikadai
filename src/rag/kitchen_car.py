@@ -3,7 +3,8 @@ LLM には返事の文章だけを書かせる（answer._converse。値段・日
 
 - 日付・曜日の指定があればその日、メニュー・店の名前だけなら今日以降でそれが出る日、どちらもなければ今日
 - 場所は質問文から拾う（「3号館A」→ その場所だけ、「3号館」→ 3号館の出店場所すべて）
-- 出店日でない日（土日・データのない月）は「その日の出店予定はありません」
+- 出店日でない日（土日など）は「その日の出店予定はありません」
+- 聞かれた日がデータのない月なら、LLM に書かせずに「◯月分のキッチンカー情報はまだ登録されていません」
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ class KitchenCarLookup:
     facts: str  # 返事を書かせるときに渡すデータ
     # 画面の「メニューを見る」に出す、日ごとの店（groups の形）
     days: list[tuple[date, list[dict[str, Any]]]] = field(default_factory=list)
+    final: bool = False  # True なら定型文をそのまま返す（LLM に書かせない）
 
 
 def _norm(text: str) -> str:
@@ -139,6 +141,9 @@ def lookup(
 
     day = _day(ext, today)
     all_rows = repository.list_kitchen_cars(conn, day=day)
+    if f"{day:%Y-%m}" not in months:
+        text = f"{day.month}月分のキッチンカー情報はまだ登録されていません。"
+        return KitchenCarLookup(text, _facts(f"案内文:\n{text}", [], months), final=True)
     rows = [r for r in all_rows if _matches(r, item, targets or None)]
     gs = groups(rows)
     label = day_label(day)

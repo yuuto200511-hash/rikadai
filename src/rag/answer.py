@@ -1046,6 +1046,9 @@ def _answer(
     if ext.intent == "kitchen_car":
         k = kitchen_car_mod.lookup(question, ext, conn, today)
         ans = Answer(k.text, "kitchen_car", kitchen_cars=k.days)
+        if k.final:  # データのない月: 定型文のまま
+            ans.context = k.facts
+            return ans
         return _converse(question, ans, prompts.load("reply_kitchen_car"), k.facts, today, history=history)
     # 調査していない場所・建物は、質問の種類にかかわらず先に確かめる。「23号館」「談話室」なら、
     # お知らせ・口コミ・対応外の質問でも未調査と答える（番号・名前の近い場所のことを答えない）

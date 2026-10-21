@@ -74,10 +74,52 @@ def test_today_and_weekend(conn, monkeypatch):
     assert "- 3号館A：Cafe' yori-michi（10:00〜14:00）" in ans.text
     assert "- 3号館B：KALTENA（10:00〜14:00）" in ans.text
     assert [len(g["items"]) for g in ans.kitchen_cars[0][1]] == [2, 1]
-    # 土曜・データのない月
-    for day in ("2026-10-24", "2026-12-01"):
-        ans = _ask(conn, monkeypatch, "その日のキッチンカー", intent="kitchen_car", date=day)
-        assert "その日の出店予定はありません" in ans.text and not ans.kitchen_cars
+    # 土曜（その月のデータはある）
+    ans = _ask(conn, monkeypatch, "その日のキッチンカー", intent="kitchen_car", date="2026-10-24")
+    assert ans.text == "10/24(土)のキッチンカーは、その日の出店予定はありません。" and not ans.kitchen_cars
+    # データのない月
+    ans = _ask(conn, monkeypatch, "その日のキッチンカー", intent="kitchen_car", date="2026-12-01")
+    assert ans.text == "12月分のキッチンカー情報はまだ登録されていません。" and not ans.kitchen_cars
+
+
+def _ask_llm(conn, monkeypatch, question, **raw):
+    """LLM の返事を使う。LLM に渡したプロンプト（呼ばれなければ空）も返す。"""
+    monkeypatch.setattr(
+        answer.extract_mod, "extract", lambda q, c, t, **kw: normalize({"supported": True, **raw})
+    )
+    prompts = []
+
+    def fake(prompt, *a, **kw):
+        prompts.append(prompt)
+        return {"reply": "LLM の返事"}
+
+    monkeypatch.setattr(answer.reply_mod.claude_cli, "ask_json", fake)
+    return answer.answer_question(question, conn, today=TODAY), prompts
+
+
+def test_missing_month_skips_llm(conn, monkeypatch):
+    for raw in ({"date": "2026-11-05"}, {"date": "2026-11-05", "kitchen_item": "タコライス"}):
+        ans, prompts = _ask_llm(conn, monkeypatch, "11月5日のキッチンカーは？", intent="kitchen_car", **raw)
+        assert ans.text == "11月分のキッチンカー情報はまだ登録されていません。"
+        assert prompts == [] and not ans.kitchen_cars
+
+
+def test_registered_month_still_uses_llm_with_same_facts(conn, monkeypatch):
+    # 出店のない日（土曜）: LLM に渡すデータは今までどおり
+    ans, prompts = _ask_llm(conn, monkeypatch, "10月24日のキッチンカーは？", intent="kitchen_car", date="2026-10-24")
+    assert ans.text == "LLM の返事" and len(prompts) == 1
+    assert (
+        "質問の対象: 10/24(土)のキッチンカー\n"
+        "10/24(土)は出店予定なし（その日の出店予定はありません）\n"
+        "登録済みの出店データの月: 2026-10"
+    ) in prompts[0]
+    # 出店のある日
+    ans, prompts = _ask_llm(conn, monkeypatch, "今日のキッチンカーは？", intent="kitchen_car")
+    assert ans.text == "LLM の返事" and len(prompts) == 1 and "KALTENA" in prompts[0]
+    # 日付のない質問は、データのない月があっても今までどおり（今日以降を表から引いて LLM が書く）
+    ans, prompts = _ask_llm(conn, monkeypatch, "タコライスはいつ来る？", intent="kitchen_car", kitchen_item="タコライス")
+    assert ans.text == "LLM の返事" and len(prompts) == 1
+    assert [d for d, _ in ans.kitchen_cars] == [date(2026, 10, 23)]
 
 
 def test_item_lists_upcoming_days(conn, monkeypatch):
